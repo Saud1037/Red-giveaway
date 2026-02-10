@@ -8,7 +8,6 @@ const os = require('os');
 const { endGiveaway, saveGiveaway } = require('../services/giveawayService');
 const { saveGreetSettings, scheduleGreetMessageDeletion } = require('../services/greetService');
 
-const { logError, getErrors } = require('../utils/errorBuffer');
 const { parseTime, formatTimeLeft } = require('../utils/time');
 const { selectWinners } = require('../utils/winners');
 
