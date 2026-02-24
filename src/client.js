@@ -6,7 +6,7 @@ const client = new Client({
     IntentsBitField.Flags.GuildMessages,
     IntentsBitField.Flags.MessageContent,
     IntentsBitField.Flags.GuildMessageReactions,
-    IntentsBitField.Flags.GuildMembers, // ✅ ضروري للترحيب
+    IntentsBitField.Flags.GuildMembers, 
   ],
 });
 

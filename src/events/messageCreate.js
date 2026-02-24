@@ -1,5 +1,3 @@
-// src/events/messageCreate.js
-
 const { EmbedBuilder, PermissionsBitField } = require('discord.js');
 const supabase = require('../supabase');
 const store = require('../store');
@@ -20,7 +18,7 @@ function registerMessageCreate(client) {
     try {
       if (message.author.bot || !message.guild) return;
 
-      // ✅ only handle commands with prefix
+      
       if (!message.content.startsWith(PREFIX)) return;
 
       const args = message.content.slice(PREFIX.length).trim().split(/\s+/);
@@ -33,13 +31,13 @@ function registerMessageCreate(client) {
          🔐 OWNER-ONLY COMMANDS
          ========================= */
 
-      // عدد السيرفرات فقط
+      
       if (command === 'botservers') {
         if (!isOwner) return;
         return message.reply(`🌐 **Total Servers:** ${client.guilds.cache.size}`);
       }
 
-      // قائمة السيرفرات (اسم + ID + أعضاء)
+      
       else if (command === 'botserverlist') {
         if (!isOwner) return;
 
@@ -62,7 +60,7 @@ function registerMessageCreate(client) {
         return;
       }
 
-      // عدد الأعضاء في كل السيرفرات
+      
       else if (command === 'botmembers') {
         if (!isOwner) return;
 
@@ -74,7 +72,7 @@ function registerMessageCreate(client) {
         return message.reply(`👥 **Total Members:** ${total}`);
       }
 
-      // البحث عن سيرفر
+      
       else if (command === 'botserverfind') {
         if (!isOwner) return;
 
@@ -98,7 +96,7 @@ function registerMessageCreate(client) {
         return message.reply(`🔎 Results (max 10):\n${results.join('\n')}`);
       }
 
-      // Ping (owner)
+      
       else if (command === 'botping') {
         if (!isOwner) return;
         const sent = await message.reply('🏓 Pinging...');
@@ -110,13 +108,13 @@ function registerMessageCreate(client) {
         );
       }
 
-      // رابط دعوة البوت (عام)
+      
       if (command === 'botinvite') {
         const invite = `https://discord.com/oauth2/authorize?client_id=${client.user.id}&permissions=274877990912&scope=bot`;
         return message.reply(`🔗 **Invite the bot:**\n${invite}`);
       }
 
-      // إحصائيات البوت (owner)
+      
       else if (command === 'botstats') {
         if (!isOwner) return;
 
@@ -137,7 +135,7 @@ function registerMessageCreate(client) {
         return message.reply({ embeds: [embed] });
       }
 
-      // Uptime (owner)
+      
       else if (command === 'botuptime') {
         if (!isOwner) return;
 
@@ -149,7 +147,7 @@ function registerMessageCreate(client) {
         return message.reply(`⏱️ **Uptime:** ${d}d ${h}h ${m}m`);
       }
 
-      // Memory usage (owner)
+      
       else if (command === 'botmemory') {
         if (!isOwner) return;
 
@@ -158,7 +156,7 @@ function registerMessageCreate(client) {
         return message.reply(`🧠 **Memory:** ${used.toFixed(1)} MB / ${total.toFixed(0)} MB`);
       }
 
-      // CPU info (owner)
+      
       else if (command === 'botcpu') {
         if (!isOwner) return;
 
@@ -166,9 +164,9 @@ function registerMessageCreate(client) {
         return message.reply(`🖥️ **CPU:** ${cpus[0]?.model || 'Unknown'} | Cores: **${cpus.length}**`);
       }
 
-      // Health (عام/أو حسب ملفك)
+      
       else if (command === 'bothealth') {
-        // إذا تبيه owner فقط حط: if (!isOwner) return;
+        
         const embed = new EmbedBuilder()
           .setTitle('✅ Bot Health')
           .setColor('#00ff00')
@@ -181,9 +179,9 @@ function registerMessageCreate(client) {
         return message.reply({ embeds: [embed] });
       }
 
-      // Errors (عام/أو حسب ملفك)
+      
       else if (command === 'boterrors') {
-        // إذا تبيه owner فقط حط: if (!isOwner) return;
+        
         const errors = getErrors();
         if (!errors.length) return message.reply('✅ No recent errors logged.');
 
