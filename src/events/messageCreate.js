@@ -5,6 +5,7 @@ const os = require('os');
 
 const { endGiveaway, saveGiveaway } = require('../services/giveawayService');
 const { saveGreetSettings, scheduleGreetMessageDeletion } = require('../services/greetService');
+const { handleSetAvatar, handleSetBanner, handleResetProfile } = require('../services/profileService');
 
 const { parseTime, formatTimeLeft } = require('../utils/time');
 const { selectWinners } = require('../utils/winners');
@@ -194,6 +195,31 @@ function registerMessageCreate(client) {
       }
 
       /* =========================
+         🖼️ PROFILE COMMANDS (Owner Only)
+         ========================= */
+
+      else if (command === 'setavatar') {
+        if (!message.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+          return message.reply('❌ You need Administrator permission to use this command.');
+        }
+        return handleSetAvatar(message, args);
+      }
+
+      else if (command === 'setbanner') {
+        if (!message.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+          return message.reply('❌ You need Administrator permission to use this command.');
+        }
+        return handleSetBanner(message, args);
+      }
+
+      else if (command === 'resetprofile') {
+        if (!message.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+          return message.reply('❌ You need Administrator permission to use this command.');
+        }
+        return handleResetProfile(message);
+      }
+
+      /* =========================
          🎉 GIVEAWAY COMMANDS
          ========================= */
 
@@ -284,6 +310,13 @@ function registerMessageCreate(client) {
 - \`${PREFIX}greet test\` → Test greeting
 - \`${PREFIX}greet stats\` → Show current settings
 Variables: {mention}, {username}`,
+            },
+            {
+              name: `🖼️ Profile Commands`,
+              value:
+                `\`${PREFIX}setavatar <url>\` → Set server avatar\n` +
+                `\`${PREFIX}setbanner <url>\` → Set server banner\n` +
+                `\`${PREFIX}resetprofile\` → Reset server profile`,
             }
           );
 
