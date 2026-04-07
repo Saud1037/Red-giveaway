@@ -6,6 +6,7 @@ const os = require('os');
 const { endGiveaway, saveGiveaway } = require('../services/giveawayService');
 const { saveGreetSettings, scheduleGreetMessageDeletion } = require('../services/greetService');
 const { handleSetAvatar, handleSetBanner, handleResetProfile } = require('../services/profileService');
+const { saveLuckRole, deleteLuckRole, clearLuckSettings, getMemberWeight, MAX_WEIGHT } = require('../services/luckService');
 
 const { parseTime, formatTimeLeft } = require('../utils/time');
 const { selectWinners } = require('../utils/winners');
@@ -13,7 +14,6 @@ const { selectWinners } = require('../utils/winners');
 const OWNER_ID = (process.env.OWNER_ID || '').trim();
 const PREFIX = (process.env.PREFIX || '!').trim();
 
-// ─── Adapter: يحول interaction لشكل يشبه message عشان نعيد استخدام نفس منطق profileService ───
 function makeMessageAdapter(interaction) {
   return {
     guild: interaction.guild,
@@ -38,15 +38,10 @@ function registerInteractionCreate(client) {
     const isAdmin = interaction.member?.permissions.has(PermissionsBitField.Flags.Administrator);
 
     try {
-      // ─── دفع reply مبكر للأوامر الثقيلة ───
       const heavyCommands = ['gstart', 'gend', 'greroll', 'setavatar', 'setbanner', 'resetprofile'];
-      if (heavyCommands.includes(commandName)) {
-        await interaction.deferReply();
-      }
+      if (heavyCommands.includes(commandName)) await interaction.deferReply();
 
-      /* =========================
-         🔐 OWNER-ONLY COMMANDS
-         ========================= */
+      // ─── OWNER ONLY ───
 
       if (commandName === 'botservers') {
         if (!isOwner) return interaction.reply({ content: '❌ Owner only.', ephemeral: true });
@@ -58,7 +53,6 @@ function registerInteractionCreate(client) {
         const servers = client.guilds.cache
           .map(g => `• **${g.name}** | ID: \`${g.id}\` | Members: **${g.memberCount}**`)
           .sort((a, b) => a.localeCompare(b));
-
         let buffer = `📌 **Bot Servers (${servers.length})**\n\n`;
         for (const line of servers) {
           if ((buffer + line + '\n').length > 1800) {
@@ -82,12 +76,10 @@ function registerInteractionCreate(client) {
         const query = interaction.options.getString('query');
         const exact = client.guilds.cache.get(query);
         if (exact) return interaction.reply(`✅ Found:\n• **${exact.name}** | ID: \`${exact.id}\` | Members: **${exact.memberCount}**`);
-
         const results = client.guilds.cache
           .filter(g => g.name.toLowerCase().includes(query.toLowerCase()))
           .map(g => `• **${g.name}** | ID: \`${g.id}\` | Members: **${g.memberCount}**`)
           .slice(0, 10);
-
         if (!results.length) return interaction.reply('❌ No matches found.');
         return interaction.reply(`🔎 Results:\n${results.join('\n')}`);
       }
@@ -104,7 +96,8 @@ function registerInteractionCreate(client) {
         let totalMembers = 0;
         client.guilds.cache.forEach(g => totalMembers += g.memberCount);
         const embed = new EmbedBuilder()
-          .setTitle('🤖 Bot Stats').setColor('#5865F2')
+          .setTitle('🤖 Bot Stats')
+          .setColor('#5865F2')
           .addFields(
             { name: 'Servers', value: `${client.guilds.cache.size}`, inline: true },
             { name: 'Members', value: `${totalMembers}`, inline: true },
@@ -137,9 +130,7 @@ function registerInteractionCreate(client) {
         return interaction.reply(`🖥️ **CPU:** ${cpus[0]?.model || 'Unknown'} | Cores: **${cpus.length}**`);
       }
 
-      /* =========================
-         📢 PUBLIC / SEMI-PUBLIC
-         ========================= */
+      // ─── PUBLIC ───
 
       if (commandName === 'botinvite') {
         const invite = `https://discord.com/oauth2/authorize?client_id=${client.user.id}&permissions=274877990912&scope=bot`;
@@ -147,7 +138,7 @@ function registerInteractionCreate(client) {
       }
 
       if (commandName === 'help') {
-        const P = process.env.PREFIX || '!';
+        const P = PREFIX;
         const embed = new EmbedBuilder()
           .setTitle('🎉 Giveaway Bot - Commands')
           .setColor('#FF0000')
@@ -155,7 +146,7 @@ function registerInteractionCreate(client) {
           .addFields(
             {
               name: '🚀 gstart',
-              value: `\`${P}gstart <time> <winners_count> <prize>\`\n\`/gstart\`\nStart a new giveaway`,
+              value: `\`${P}gstart <time> <winners> <prize> [luck:on/off]\`\n\`/gstart\`\nStart a new giveaway`,
             },
             {
               name: '🗑️ gend',
@@ -167,7 +158,16 @@ function registerInteractionCreate(client) {
             },
             {
               name: '🔄 greroll',
-              value: `\`${P}greroll <message_id>\`\n\`/greroll\`\nReroll winners for a giveaway`,
+              value: `\`${P}greroll <message_id>\`\n\`/greroll\`\nReroll winners`,
+            },
+            {
+              name: '🍀 gluck',
+              value:
+                `\`${P}gluck add <@role> <multiplier>\` | \`/gluck add\` → Add lucky role\n` +
+                `\`${P}gluck remove <@role>\` | \`/gluck remove\` → Remove lucky role\n` +
+                `\`${P}gluck list\` | \`/gluck list\` → Show all lucky roles\n` +
+                `\`${P}gluck clear\` | \`/gluck clear\` → Remove all lucky roles\n` +
+                `\`${P}gluck me\` | \`/gluck me\` → Check your luck multiplier`,
             },
             {
               name: '👋 greet',
@@ -178,47 +178,37 @@ function registerInteractionCreate(client) {
                 `\`${P}greet reset\` | \`/greet reset\` → Remove all channels\n` +
                 `\`${P}greet clear\` | \`/greet clear\` → Reset everything\n` +
                 `\`${P}greet test\` | \`/greet test\` → Test greeting\n` +
-                `\`${P}greet stats\` | \`/greet stats\` → Show current settings\n` +
-                `Variables: {mention}, {username}`,
+                `\`${P}greet stats\` | \`/greet stats\` → Show settings`,
             },
             {
-              name: '🖼️ Profile Commands (Administrator Only)',
+              name: '🖼️ Profile (Admin Only)',
               value:
-                `\`${P}setavatar <url>\` | \`/setavatar\` → Set server avatar\n` +
-                `\`${P}setbanner <url>\` | \`/setbanner\` → Set server banner\n` +
-                `\`${P}resetprofile\` | \`/resetprofile\` → Reset server profile`,
+                `\`${P}setavatar <url>\` | \`/setavatar\`\n` +
+                `\`${P}setbanner <url>\` | \`/setbanner\`\n` +
+                `\`${P}resetprofile\` | \`/resetprofile\``,
             },
           );
         return interaction.reply({ embeds: [embed] });
       }
 
-      /* =========================
-         🖼️ PROFILE COMMANDS
-         ========================= */
+      // ─── PROFILE ───
 
       if (commandName === 'setavatar') {
         if (!isAdmin) return interaction.editReply('❌ You need Administrator permission.');
-        const url = interaction.options.getString('url');
-        const adapter = makeMessageAdapter(interaction);
-        return handleSetAvatar(adapter, [url]);
+        return handleSetAvatar(makeMessageAdapter(interaction), [interaction.options.getString('url')]);
       }
 
       if (commandName === 'setbanner') {
         if (!isAdmin) return interaction.editReply('❌ You need Administrator permission.');
-        const url = interaction.options.getString('url');
-        const adapter = makeMessageAdapter(interaction);
-        return handleSetBanner(adapter, [url]);
+        return handleSetBanner(makeMessageAdapter(interaction), [interaction.options.getString('url')]);
       }
 
       if (commandName === 'resetprofile') {
         if (!isAdmin) return interaction.editReply('❌ You need Administrator permission.');
-        const adapter = makeMessageAdapter(interaction);
-        return handleResetProfile(adapter);
+        return handleResetProfile(makeMessageAdapter(interaction));
       }
 
-      /* =========================
-         🎉 GIVEAWAY COMMANDS
-         ========================= */
+      // ─── GIVEAWAY ───
 
       if (commandName === 'gstart') {
         if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageEvents)) {
@@ -228,6 +218,7 @@ function registerInteractionCreate(client) {
         const timeArg = interaction.options.getString('time');
         const winnersCount = interaction.options.getInteger('winners');
         const prize = interaction.options.getString('prize');
+        const luckEnabled = interaction.options.getBoolean('luck') ?? true;
         const duration = parseTime(timeArg);
 
         if (duration === 0) return interaction.editReply('❌ Invalid time! Use 1h, 30m, 1d');
@@ -235,12 +226,24 @@ function registerInteractionCreate(client) {
         const giveawayId = Date.now().toString();
         const endTime = new Date(Date.now() + duration).toISOString();
 
+        const luckRoles = store.luckSettings?.[interaction.guild.id];
+        let luckLine = '';
+        if (luckEnabled && luckRoles && Object.keys(luckRoles).length) {
+          const roleTexts = Object.entries(luckRoles)
+            .sort((a, b) => b[1] - a[1])
+            .map(([id, w]) => `<@&${id}> (×${w})`)
+            .join(', ');
+          luckLine = `\n🍀 Lucky Roles: ${roleTexts}`;
+        }
+
         const embed = new EmbedBuilder()
-          .setTitle(`${prize}`).setColor('#FFFF00')
+          .setTitle(`${prize}`)
+          .setColor('#FFFF00')
           .setDescription(
             `🔔 React with 🎉 to enter!\n` +
             `⚙️ Ending: <t:${Math.floor((Date.now() + duration) / 1000)}:R>\n` +
-            `↕️ Hosted by: <@${interaction.user.id}>`
+            `↕️ Hosted by: <@${interaction.user.id}>` +
+            luckLine
           )
           .setFooter({ text: `🏆 Winners: ${winnersCount}` });
 
@@ -259,6 +262,7 @@ function registerInteractionCreate(client) {
           winners: winnersCount,
           endtime: endTime,
           participants: [],
+          luckEnabled,
         };
 
         await saveGiveaway(store.giveaways[giveawayId]);
@@ -280,20 +284,22 @@ function registerInteractionCreate(client) {
         const pageSize = 10;
         const page = interaction.options.getInteger('page') || 1;
         const active = Object.values(store.giveaways).filter(g => g.guildId === interaction.guild.id);
-
         if (!active.length) return interaction.reply('📋 No active giveaways currently.');
-
         const totalPages = Math.ceil(active.length / pageSize);
         if (page < 1 || page > totalPages) return interaction.reply(`❌ Invalid page. Choose between 1 and ${totalPages}`);
-
         const slice = active.slice((page - 1) * pageSize, page * pageSize);
-        const embed = new EmbedBuilder().setTitle(`📋 Active Giveaways (Page ${page}/${totalPages})`).setColor('#0099ff');
-
+        const embed = new EmbedBuilder()
+          .setTitle(`📋 Active Giveaways (Page ${page}/${totalPages})`)
+          .setColor('#0099ff');
         slice.forEach((g, i) => {
           const timeLeft = formatTimeLeft(new Date(g.endtime).getTime() - Date.now());
-          embed.addFields({ name: `${(page - 1) * pageSize + i + 1}. ${g.prize}`, value: `**Winners:** ${g.winners}\n**Time Left:** ${timeLeft}\n**ID:** ${g.messageId}`, inline: false });
+          const luckTag = g.luckEnabled ? ' 🍀' : '';
+          embed.addFields({
+            name: `${(page - 1) * pageSize + i + 1}. ${g.prize}${luckTag}`,
+            value: `**Winners:** ${g.winners}\n**Time Left:** ${timeLeft}\n**ID:** ${g.messageId}`,
+            inline: false,
+          });
         });
-
         return interaction.reply({ embeds: [embed] });
       }
 
@@ -312,9 +318,76 @@ function registerInteractionCreate(client) {
         return interaction.deleteReply();
       }
 
-      /* =========================
-         👋 GREET COMMANDS
-         ========================= */
+      // ─── GLUCK ───
+
+      if (commandName === 'gluck') {
+        const sub = interaction.options.getSubcommand();
+
+        if (sub === 'me') {
+          const weight = getMemberWeight(interaction.member, interaction.guild.id);
+          const luckRoles = store.luckSettings?.[interaction.guild.id] || {};
+          const myRoles = Object.entries(luckRoles)
+            .filter(([id]) => interaction.member.roles.cache.has(id))
+            .map(([id, w]) => `<@&${id}> (×${w})`);
+          const embed = new EmbedBuilder()
+            .setTitle('🍀 Your Luck')
+            .setColor('#00ff88')
+            .addFields(
+              { name: 'Total Multiplier', value: `×${weight}`, inline: true },
+              { name: 'Max Possible', value: `×${MAX_WEIGHT}`, inline: true },
+              { name: 'Lucky Roles You Have', value: myRoles.length ? myRoles.join('\n') : 'None' }
+            );
+          return interaction.reply({ embeds: [embed], ephemeral: true });
+        }
+
+        if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageEvents)) {
+          return interaction.reply({ content: '❌ You need Manage Events permission.', ephemeral: true });
+        }
+
+        if (!store.luckSettings[interaction.guild.id]) store.luckSettings[interaction.guild.id] = {};
+
+        if (sub === 'add') {
+          const role = interaction.options.getRole('role');
+          const multiplier = interaction.options.getNumber('multiplier');
+          store.luckSettings[interaction.guild.id][role.id] = multiplier;
+          await saveLuckRole(interaction.guild.id, role.id, multiplier);
+          return interaction.reply(`✅ <@&${role.id}> will now have **×${multiplier}** luck in giveaways!`);
+        }
+
+        if (sub === 'remove') {
+          const role = interaction.options.getRole('role');
+          if (!store.luckSettings[interaction.guild.id]?.[role.id]) {
+            return interaction.reply({ content: '❌ This role has no luck bonus.', ephemeral: true });
+          }
+          delete store.luckSettings[interaction.guild.id][role.id];
+          await deleteLuckRole(interaction.guild.id, role.id);
+          return interaction.reply(`✅ Removed luck bonus from <@&${role.id}>.`);
+        }
+
+        if (sub === 'list') {
+          const roles = store.luckSettings[interaction.guild.id] || {};
+          if (!Object.keys(roles).length) {
+            return interaction.reply('📋 No lucky roles set up for this server.');
+          }
+          const embed = new EmbedBuilder()
+            .setTitle('🍀 Lucky Roles')
+            .setColor('#00ff88');
+          const lines = Object.entries(roles)
+            .sort((a, b) => b[1] - a[1])
+            .map(([id, w]) => `<@&${id}> → **×${w}**`);
+          embed.setDescription(lines.join('\n'));
+          embed.setFooter({ text: `Max multiplier cap: ×${MAX_WEIGHT}` });
+          return interaction.reply({ embeds: [embed] });
+        }
+
+        if (sub === 'clear') {
+          store.luckSettings[interaction.guild.id] = {};
+          await clearLuckSettings(interaction.guild.id);
+          return interaction.reply('✅ All lucky roles cleared.');
+        }
+      }
+
+      // ─── GREET ───
 
       if (commandName === 'greet') {
         if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) {
@@ -348,8 +421,7 @@ function registerInteractionCreate(client) {
         }
 
         if (sub === 'set') {
-          const msg = interaction.options.getString('message');
-          settings.message = msg;
+          settings.message = interaction.options.getString('message');
           await saveGreetSettings(interaction.guild.id);
           return interaction.reply('✅ Greeting message updated!');
         }
@@ -379,7 +451,6 @@ function registerInteractionCreate(client) {
           const testMessage = settings.message
             .replace(/{mention}/g, `<@${interaction.user.id}>`)
             .replace(/{username}/g, interaction.user.username);
-
           let sentCount = 0;
           for (const channelId of settings.channels) {
             const channel = interaction.guild.channels.cache.get(channelId);
@@ -388,7 +459,9 @@ function registerInteractionCreate(client) {
               const sent = await channel.send(testMessage);
               scheduleGreetMessageDeletion(sent, settings.delete_time);
               sentCount++;
-            } catch (e) { console.error('Test greet error:', e); }
+            } catch (e) {
+              console.error('Test greet error:', e);
+            }
           }
           return interaction.reply(`✅ Test greeting sent to ${sentCount} channel(s)!`);
         }
@@ -397,8 +470,9 @@ function registerInteractionCreate(client) {
           const embed = new EmbedBuilder().setTitle('👋 Greeting Settings').setColor('#00ff00');
           const validChannels = (settings.channels || [])
             .map(id => interaction.guild.channels.cache.get(id))
-            .filter(Boolean).map(ch => `<#${ch.id}>`).join(', ') || 'No channels';
-
+            .filter(Boolean)
+            .map(ch => `<#${ch.id}>`)
+            .join(', ') || 'No channels';
           embed.addFields(
             { name: 'Channels', value: validChannels },
             { name: 'Message', value: settings.message || 'Welcome {mention} 🎉' },

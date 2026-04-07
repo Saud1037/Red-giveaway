@@ -2,6 +2,7 @@ const { EmbedBuilder } = require('discord.js');
 const supabase = require('../supabase');
 const store = require('../store');
 const { selectWinners } = require('../utils/winners');
+const { buildWeightedPool } = require('../services/luckService');
 
 async function loadGiveaways() {
   const { data, error } = await supabase.from('giveaways').select('*');
@@ -9,7 +10,6 @@ async function loadGiveaways() {
     console.error('Error loading giveaways:', error);
     return;
   }
-
   store.giveaways = {};
   data.forEach(g => {
     store.giveaways[g.id] = g;
@@ -30,16 +30,42 @@ async function endGiveaway(client, giveawayId) {
   const giveaway = store.giveaways[giveawayId];
   if (!giveaway) return;
 
-  // احذف فوراً من الـ store كطبقة حماية ثانية ضد التكرار
+  // احذف فوراً من الـ store كطبقة حماية ضد التكرار
   delete store.giveaways[giveawayId];
 
   try {
     const channel = await client.channels.fetch(giveaway.channelId);
     const message = await channel.messages.fetch(giveaway.messageId);
+    const guild = await client.guilds.fetch(giveaway.guildId);
 
     let winners = [];
-    if (giveaway.participants.length >= giveaway.winners) {
-      winners = selectWinners(giveaway.participants, giveaway.winners);
+
+    if (giveaway.participants.length > 0) {
+      const luckEnabled = giveaway.luckEnabled ?? true;
+      let pool;
+
+      if (luckEnabled) {
+        pool = await buildWeightedPool(giveaway.participants, guild, giveaway.guildId);
+      } else {
+        pool = giveaway.participants;
+      }
+
+      if (pool.length >= giveaway.winners) {
+        winners = selectWinners(pool, giveaway.winners);
+        // إزالة التكرار (ممكن نفس الشخص يظهر أكثر من مرة بسبب الأوزان)
+        winners = [...new Set(winners)].slice(0, giveaway.winners);
+      }
+    }
+
+    // ─── بناء نص الرتب المحظوظة ───
+    const luckRoles = store.luckSettings?.[giveaway.guildId];
+    let luckLine = '';
+    if (luckRoles && Object.keys(luckRoles).length && (giveaway.luckEnabled ?? true)) {
+      const roleTexts = Object.entries(luckRoles)
+        .sort((a, b) => b[1] - a[1])
+        .map(([id, w]) => `<@&${id}> (×${w})`)
+        .join(', ');
+      luckLine = `\n🍀 Lucky Roles: ${roleTexts}`;
     }
 
     const embed = new EmbedBuilder().setColor('#FF0000').setTimestamp();
@@ -51,7 +77,8 @@ async function endGiveaway(client, giveawayId) {
         .setDescription(
           `🔔 Winner(s): ${winnerMentions}\n` +
           `⚙️ Ending: Ended\n` +
-          `↕️ Hosted by: <@${giveaway.hostId}>`
+          `↕️ Hosted by: <@${giveaway.hostId}>` +
+          luckLine
         )
         .setFooter({ text: `🏆 Winners: ${giveaway.winners}` });
 
@@ -62,7 +89,8 @@ async function endGiveaway(client, giveawayId) {
         .setDescription(
           `🔔 Winner(s): No valid entries\n` +
           `⚙️ Ending: Ended\n` +
-          `↕️ Hosted by: <@${giveaway.hostId}>`
+          `↕️ Hosted by: <@${giveaway.hostId}>` +
+          luckLine
         )
         .setFooter({ text: `🏆 Winners: ${giveaway.winners}` });
     }
@@ -78,15 +106,10 @@ async function endGiveaway(client, giveawayId) {
 
     await deleteGiveaway(giveawayId);
   } catch (error) {
-    // لو صار خطأ، نرجع القيفاوي للـ store حتى يحاول مرة ثانية
+    // لو صار خطأ، نرجع القيفاوي للـ store
     store.giveaways[giveawayId] = giveaway;
     console.error('Error ending giveaway:', error);
   }
 }
 
-module.exports = {
-  loadGiveaways,
-  saveGiveaway,
-  deleteGiveaway,
-  endGiveaway,
-};
+module.exports = { loadGiveaways, saveGiveaway, deleteGiveaway, endGiveaway };
