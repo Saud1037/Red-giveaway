@@ -119,5 +119,6 @@ async function endGiveaway(client, giveawayId) {
       console.error('Error ending giveaway:', error);
     }
   }
+}
 
 module.exports = { loadGiveaways, saveGiveaway, deleteGiveaway, endGiveaway };
