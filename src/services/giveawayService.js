@@ -108,10 +108,16 @@ async function endGiveaway(client, giveawayId) {
 
     await deleteGiveaway(giveawayId);
   } catch (error) {
-    // لو صار خطأ، نرجع القيفاوي للـ store
-    store.giveaways[giveawayId] = giveaway;
-    console.error('Error ending giveaway:', error);
+    const unrecoverableCodes = [10003, 10008, 50001];
+    if (unrecoverableCodes.includes(error.code)) {
+      // القناة أو الرسالة مو موجودة، احذف القيفاوي نهائياً
+      await deleteGiveaway(giveawayId);
+      console.log(`Removed unrecoverable giveaway ${giveawayId} (code: ${error.code})`);
+    } else {
+      // خطأ مؤقت، رجّع للـ store عشان يحاول مرة ثانية
+      store.giveaways[giveawayId] = giveaway;
+      console.error('Error ending giveaway:', error);
+    }
   }
-}
 
 module.exports = { loadGiveaways, saveGiveaway, deleteGiveaway, endGiveaway };
