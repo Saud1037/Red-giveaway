@@ -49,16 +49,32 @@ function getMemberWeight(member, guildId) {
 }
 
 // ─── Build weighted ticket pool from participants ───
-// participants: array of user IDs
-// guild: Guild object (to fetch members)
+// يجيب كل الأعضاء دفعة وحدة بدل طلب فردي لكل شخص
 async function buildWeightedPool(participants, guild, guildId) {
   const pool = [];
+  const roles = store.luckSettings?.[guildId];
+
+  // لو ما في رتب محظوظة، ما في داعي نجيب الأعضاء
+  if (!roles || !Object.keys(roles).length) {
+    return participants;
+  }
+
+  // جيب كل الأعضاء دفعة وحدة
+  let membersMap = new Map();
+  try {
+    const fetched = await guild.members.fetch({ user: participants });
+    fetched.forEach(m => membersMap.set(m.id, m));
+  } catch {
+    // لو فشل الجلب، ارجع للقائمة العادية بدون أوزان
+    return participants;
+  }
+
   for (const userId of participants) {
-    let member;
-    try { member = await guild.members.fetch(userId); } catch { member = null; }
+    const member = membersMap.get(userId) || null;
     const weight = member ? getMemberWeight(member, guildId) : 1;
     for (let i = 0; i < weight; i++) pool.push(userId);
   }
+
   return pool;
 }
 
