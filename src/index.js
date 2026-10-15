@@ -1,14 +1,10 @@
 require('dotenv').config();
 
-const { logError } = require('./utils/errorBuffer');
-
 process.on('unhandledRejection', (err) => {
-  logError(err);
   console.error('Unhandled Rejection:', err);
 });
 
 process.on('uncaughtException', (err) => {
-  logError(err);
   console.error('Uncaught Exception:', err);
 });
 
