@@ -1,3 +1,5 @@
+console.log('Token exists:', !!process.env.DISCORD_TOKEN);
+
 require('dotenv').config();
 
 process.on('unhandledRejection', (err) => {
